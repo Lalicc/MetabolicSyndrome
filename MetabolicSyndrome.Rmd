@@ -1,0 +1,148 @@
+---
+title: "Metabolic Syndrome"
+author: "Nikola Lalić, Luka Ivanović"
+output: html_notebook
+---
+## Uvod
+
+Metabolic Syndrome predstavlja set podataka koji sadrži informacije o pojedincima sa metaboličkim sindromom, složenim medicinskim stanjem povezanim sa skupom faktora rizika za kardiovaskularne bolesti i tip 2 dijabetes. Podaci uključuju demografske, kliničke i laboratorijske merenja, kao i prisustvo ili odsustvo metaboličkog sindroma.
+
+**Link za korišćeni dataset:** https://www.kaggle.com/datasets/antimoni/metabolic-syndrome
+
+## Opis podataka
+
+Dimenzije seta podataka su 2401 15. Kolone Marital, Income, WaistCirc i BMI sadrže nedostajuće vrednosti. Atributi su sledeći:
+
+* **Seqn** - Identifikacioni broj
+* **Age** - Godine
+* **Sex** - Pol
+* **Marital** - Bračni status
+* **Income** - Mesečni prihod
+* **Race** - Rasa
+* **WaistCirc** - Obim struka
+* **BMI** - Body mass index
+* **Albuminuria** - Albumin u urinu
+* **UrAlbCr** - Odnos albumina i kreatinina u urinu
+* **UricAcid** - Nivo mokraćne kiseline u krvi
+* **BloodGlucose** - Nivo glukoze u krvi
+* **HDL** - Nivo dobrog holesterola
+* **Triglycerides** - Nivo triglicerida u krvi
+* **MetabolicSyndrome** - 1 za prisustvo, 0 za odsustvo
+
+
+## Učitavanje biblioteka i skupa podataka
+
+```{r}
+library(tidyverse)
+library(glmnet)
+library(ggplot2)
+```
+
+Prvo učitavamo set podataka u promenjivu **data**
+```{r}
+data = read.csv("Metabolic Syndrome.csv", stringsAsFactors = F)
+```
+## Ispitivanje i vizualizacija podataka
+
+#### Ispitivanje da li postoje nepopunjene vrednosti
+
+Pol
+```{r}
+length(which(data$Sex == ""))
+```
+Bračni status
+```{r}
+length(which(data$Marital == ""))
+```
+
+Rasa
+```{r}
+length(which(data$Race == ""))
+```
+
+Zanima nas da li bračni status utiče na ishod.
+```{r}
+ggplot(data) + geom_point(aes(x = Marital, y = MetabolicSyndrome))
+```
+
+Na slici vidimo da bračni status uopste ne utiče na ishod. Ali ćemo videti da li godine utiču na bračni status (Zaključeno iz domenskog znanja).
+
+```{r}
+ggplot(data) + geom_point(aes(x = Marital, y = Age))
+```
+
+Godine nikako ne utiču na bračni status. Ispitaćemo za prihod takodje.
+
+```{r}
+ggplot(data) + geom_point(aes(x = Marital, y = Income))
+```
+
+Ni prihod ne utiče na bračni status. Ispitaćemo za BMI.
+```{r}
+ggplot(data) + geom_point(aes(x = Marital, y = BMI))
+```
+
+Ni BMI, što znači da smo probali feature koji imaju najviše smisla da budu korelisani sa Marital. S obzirom da nismo dobili nijednu korelaciju, Marital ćemo popuniti najčešćom vrednošću.
+```{r}
+table(data$Marital)
+```
+Vidimo da je najčešća promenljiva Married, i sa njom ćemo popuniti nedostajuće vrednosti.
+```{r}
+data$Marital[which(data$Marital == "")] <- "Married"
+```
+Hajde da vidimo koliko različitih vrednosti Marital, Race i Sex(Iako znamo da ima 2, proverićemo za svaki slučaj) imaju.
+```{r}
+unique(data$Marital)
+```
+```{r}
+unique(data$Race)
+```
+```{r}
+unique(data$Sex)
+```
+Sada kada smo ustanovili da ove kategorijske promenljive imaju nekoliko vrednosti, njih ćemo da faktorišemo.
+```{r}
+data$Marital = factor(data$Marital)
+data$Sex = factor(data$Sex)
+data$Race = factor(data$Race)
+summary(data)
+```
+S obzirom da Income ima najviše null vrednosti 117, to je 4.87% broja redova, featuri koji su numerički popunićemo sa mean ili median u zavisnosti od raspodele. Odradićemo shapiro test az income da bi videli raspodelu podataka.
+```{r}
+shapiro.test(data$Income)
+```
+S obzirom da je p-value manja od 0.05, podaci nisu normalno distribuirani tako da ćemo ovu kolonu popuniti medijanom.
+```{r}
+medIncome <- median(data$Income, na.rm = TRUE)
+medIncome
+data$Income[is.na(data$Income)] <- medIncome
+```
+Odraćemo takodje shapiro test za WaistCirc.
+```{r}
+shapiro.test(data$WaistCirc)
+```
+I ovde je p-value manja od 0.05, pa ćemo i ovo popuniti medijanom.
+```{r}
+medWaistCirc <- median(data$WaistCirc, na.rm = TRUE)
+medWaistCirc
+data$WaistCirc[is.na(data$WaistCirc)] <- medWaistCirc
+```
+Sada je na radu BMI.
+```{r}
+shapiro.test(data$BMI)
+```
+```{r}
+medBMI <- median(data$BMI, na.rm = TRUE)
+medBMI
+data$BMI[is.na(data$BMI)] <- medBMI
+```
+Ishod je isti kao za prethodna dva. Za kraj ćemo target kolonu pretvoriti u kategorijsku promenjivu koju ćemo da faktorišemo vrednostima "Yes" i "No".
+```{r}
+data$MetabolicSyndrome <- ifelse(data$MetabolicSyndrome == 1, "Yes", "No")
+data$MetabolicSyndrome <- factor(data$MetabolicSynd)
+summary(data)
+```
+
+
+
+
