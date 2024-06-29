@@ -60,7 +60,7 @@ Rasa
 length(which(data$Race == ""))
 ```
 
-Zanima nas da li bračni status utiče na ishod.
+Zanima nas da li bračni status utiče na ishod s obzirom da on ima 208 vrednosti koje su prazni string.
 ```{r}
 ggplot(data) + geom_point(aes(x = Marital, y = MetabolicSyndrome))
 ```
@@ -74,12 +74,12 @@ ggplot(data) + geom_point(aes(x = Marital, y = Age))
 Godine nikako ne utiču na bračni status. Ispitaćemo za prihod takodje.
 
 ```{r}
-ggplot(data) + geom_point(aes(x = Marital, y = Income))
+ggplot(filter(data, na.rm = TRUE)) + geom_point(aes(x = Marital, y = Income))
 ```
 
 Ni prihod ne utiče na bračni status. Ispitaćemo za BMI.
 ```{r}
-ggplot(data) + geom_point(aes(x = Marital, y = BMI))
+ggplot(filter(data, na.rm = TRUE)) + geom_point(aes(x = Marital, y = BMI))
 ```
 
 Ni BMI, što znači da smo probali feature koji imaju najviše smisla da budu korelisani sa Marital. S obzirom da nismo dobili nijednu korelaciju, Marital ćemo popuniti najčešćom vrednošću.
