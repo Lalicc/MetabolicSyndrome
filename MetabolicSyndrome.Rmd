@@ -5,7 +5,7 @@ output: html_notebook
 ---
 ## Uvod
 
-Metabolic Syndrome predstavlja set podataka koji sadrži informacije o pojedincima sa metaboličkim sindromom, složenim medicinskim stanjem povezanim sa skupom faktora rizika za kardiovaskularne bolesti i tip 2 dijabetes. Podaci uključuju demografske, kliničke i laboratorijske merenja, kao i prisustvo ili odsustvo metaboličkog sindroma.
+Metabolic Syndrome predstavlja set podataka koji sadrži informacije o pojedincima sa metaboličkim sindromom, složenim medicinskim stanjem povezanim sa skupom faktora rizika za kardiovaskularne bolesti i dijabetes tip 2. Podaci uključuju demografska, klinička i laboratorijska merenja, kao i prisustvo ili odsustvo metaboličkog sindroma.
 
 **Link za korišćeni dataset:** https://www.kaggle.com/datasets/antimoni/metabolic-syndrome
 
@@ -34,63 +34,142 @@ Dimenzije seta podataka su 2401 15. Kolone Marital, Income, WaistCirc i BMI sadr
 
 ```{r}
 library(tidyverse)
-library(glmnet)
-library(ggplot2)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(VIM)
+library(rsample)
+library(dplyr)
+library(nnet)  
 ```
 
-Prvo učitavamo set podataka u promenjivu **data**
+Prvo učitavamo set podataka u promenjivu **data** i **dataPom**
 ```{r}
 data = read.csv("Metabolic Syndrome.csv", stringsAsFactors = F)
+dataPom <- read.csv("Metabolic Syndrome.csv")
 ```
+
+Pre daljeg ispitivanja proverićemo ditribuciju naše target promenjive. Pre toga ćemo je faktorisati.
+
+```{r}
+data$MetabolicSyndrome <- ifelse(data$MetabolicSyndrome == 1, "Yes", "No")
+data$MetabolicSyndrome <- factor(data$MetabolicSynd)
+summary(data)
+```
+
+```{r}
+data_summary <- data %>%
+  group_by(MetabolicSyndrome) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(data_summary, aes(x = "", y = Percentage, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(
+    title = "Procentualni udeo ljudi sa i bez metaboličkog sindroma",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_void() +  # Uklanja osi i pozadinu za lepši izgled
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")),
+            position = position_stack(vjust = 0.5))
+```
+Možemo primetiti da u našem setu podataka imamo više ljudi koji nema sindrom nego onih koji imaju.
+
 ## Ispitivanje i vizualizacija podataka
 
 #### Ispitivanje da li postoje nepopunjene vrednosti
-
-Pol
 ```{r}
 length(which(data$Sex == ""))
 ```
-Bračni status
 ```{r}
 length(which(data$Marital == ""))
 ```
-
-Rasa
 ```{r}
 length(which(data$Race == ""))
 ```
-
-Zanima nas da li bračni status utiče na ishod s obzirom da on ima 208 vrednosti koje su prazni string.
-```{r}
-ggplot(data) + geom_point(aes(x = Marital, y = MetabolicSyndrome))
-```
-
-Na slici vidimo da bračni status uopste ne utiče na ishod. Ali ćemo videti da li godine utiču na bračni status (Zaključeno iz domenskog znanja).
+Vidimo da Marital ima nedostajuće vrednosti. Ima ih 208 od ukupno 2401 sto je otprilike 8.67%, hajde da vidimo kako možemo da ih popunimo.
 
 ```{r}
-ggplot(data) + geom_point(aes(x = Marital, y = Age))
+ggplot(filter(data, data$Marital != ""), aes(x = Marital, y = Age)) +
+  geom_boxplot(aes(fill = Marital)) +
+  labs(
+    title = "Distribucija starosti po bračnom statusu bez nedostajućih",
+    x = "Bračni status",
+    y = "Starost"
+  ) +
+  theme_minimal()
+ggplot(data, aes(x = Marital, y = Age)) +
+  geom_boxplot(aes(fill = Marital)) +
+  labs(
+    title = "Distribucija starosti po bračnom statusu sa nedostajućim",
+    x = "Bračni status",
+    y = "Starost"
+  ) +
+  theme_minimal()
 ```
-
-Godine nikako ne utiču na bračni status. Ispitaćemo za prihod takodje.
-
 ```{r}
-ggplot(filter(data, na.rm = TRUE)) + geom_point(aes(x = Marital, y = Income))
+ggplot(filter(data, data$Marital != ""), aes(x = Age, fill = Marital)) +
+  geom_density(alpha = 0.6) +
+  labs(
+    title = "Distribucija starosti po bračnom statusu bez nedostajućih",
+    x = "Starost",
+    y = "Gustina"
+  ) +
+  theme_minimal()
+ggplot(data, aes(x = Age, fill = Marital)) +
+  geom_density(alpha = 0.6) +
+  labs(
+    title = "Distribucija starosti po bračnom statusu sa nedostajućim",
+    x = "Starost",
+    y = "Gustina"
+  ) +
+  theme_minimal()
 ```
-
-Ni prihod ne utiče na bračni status. Ispitaćemo za BMI.
+Na osnovu ove raspodele možemo utvrditi da godine utiču na bračni status i da raspodela naših nedostajućih vrednosti najviše podseća na raspodelu single ljudi.
 ```{r}
-ggplot(filter(data, na.rm = TRUE)) + geom_point(aes(x = Marital, y = BMI))
+ggplot(filter(data, data$Marital != ""), aes(x = Marital, y = Income)) +
+  geom_boxplot(aes(fill = Marital)) +
+  labs(
+    title = "Distribucija prihoda po bračnom statusu bez nedostajućih",
+    x = "Bracni status",
+    y = "Prihod"
+  ) +
+  theme_minimal()
+ggplot(data, aes(x = Marital, y = Income)) +
+  geom_boxplot(aes(fill = Marital)) +
+  labs(
+    title = "Distribucija prihoda po bracnom statusu sa nedostajućim",
+    x = "Bračni status",
+    y = "Prihod"
+  ) +
+  theme_minimal()
 ```
-
-Ni BMI, što znači da smo probali feature koji imaju najviše smisla da budu korelisani sa Marital. S obzirom da nismo dobili nijednu korelaciju, Marital ćemo popuniti najčešćom vrednošću.
+Ovde možemo zaključiti, kao što je i logično da ljudi u braku najviše zaradjuju, ali je zanimljivo i to da su sledeći single ljudi.
 ```{r}
-table(data$Marital)
+data_summary_race_marital <- filter(data, data$Marital != "") %>%
+  group_by(Race, Marital) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Race) %>%
+  mutate(percentage = count / sum(count) * 100)
+ggplot(data_summary_race_marital, aes(x = Marital, y = percentage, fill = Marital)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(
+    title = "Procentualna distribucija bračnog statusa unutar svake rase",
+    x = "",
+    y = "Procenat",
+    fill = "Bračni status"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  facet_wrap(~ Race, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 75))
 ```
-Vidimo da je najčešća promenljiva Married, i sa njom ćemo popuniti nedostajuće vrednosti.
-```{r}
-data$Marital[which(data$Marital == "")] <- "Married"
-```
-Hajde da vidimo koliko različitih vrednosti Marital, Race i Sex(Iako znamo da ima 2, proverićemo za svaki slučaj) imaju.
+Ono što možemo da primetimo jeste da kod svih rasa, sem Black i Other, dominira Married bračni status. Kod Black i Other vidimo da je procentualno Married i Single otprilike na istoj lestivici.
+Da vidimo sada da li kategorijske promenjive imaju vrednosti koje se ponavljaju.
 ```{r}
 unique(data$Marital)
 ```
@@ -100,34 +179,32 @@ unique(data$Race)
 ```{r}
 unique(data$Sex)
 ```
-Sada kada smo ustanovili da ove kategorijske promenljive imaju nekoliko vrednosti, njih ćemo da faktorišemo.
+Sada kada smo ustanovili da ove kategorijske promenjive imaju sve nekoliko vrednosti, njih ćemo da faktorišemo.
 ```{r}
 data$Marital = factor(data$Marital)
 data$Sex = factor(data$Sex)
 data$Race = factor(data$Race)
 summary(data)
 ```
-S obzirom da Income ima najviše null vrednosti 117, to je 4.87% broja redova, featuri koji su numerički popunićemo sa mean ili median u zavisnosti od raspodele. Odradićemo shapiro test az income da bi videli raspodelu podataka.
+S obzirom da Income ima najvise null vrednosti 117, to je 4.87% broja redova, featuri koji su numerički popunićemo sa mean ili median u zavisnosti od raspodele
 ```{r}
 shapiro.test(data$Income)
 ```
-S obzirom da je p-value manja od 0.05, podaci nisu normalno distribuirani tako da ćemo ovu kolonu popuniti medijanom.
+p-value je manja od 0.05, što znači da podaci nisu normalno distribuirani tako da ćemo ovu kolonu popuniti medijanom
 ```{r}
 medIncome <- median(data$Income, na.rm = TRUE)
 medIncome
 data$Income[is.na(data$Income)] <- medIncome
 ```
-Odraćemo takodje shapiro test za WaistCirc.
 ```{r}
 shapiro.test(data$WaistCirc)
 ```
-I ovde je p-value manja od 0.05, pa ćemo i ovo popuniti medijanom.
 ```{r}
 medWaistCirc <- median(data$WaistCirc, na.rm = TRUE)
 medWaistCirc
 data$WaistCirc[is.na(data$WaistCirc)] <- medWaistCirc
 ```
-Sada je na radu BMI.
+
 ```{r}
 shapiro.test(data$BMI)
 ```
@@ -136,13 +213,590 @@ medBMI <- median(data$BMI, na.rm = TRUE)
 medBMI
 data$BMI[is.na(data$BMI)] <- medBMI
 ```
-Ishod je isti kao za prethodna dva. Za kraj ćemo target kolonu pretvoriti u kategorijsku promenjivu koju ćemo da faktorišemo vrednostima "Yes" i "No".
 ```{r}
-data$MetabolicSyndrome <- ifelse(data$MetabolicSyndrome == 1, "Yes", "No")
-data$MetabolicSyndrome <- factor(data$MetabolicSynd)
 summary(data)
 ```
 
+Za nedostajuće vrednosti Marital, napravićemo model multinominalne logističke regresije koji će da predvidja bračni status.
+```{r}
+data$Marital[data$Marital == ""] <- NA
+data$Marital <- factor(data$Marital)
+df_known <- na.omit(data)
+model <- multinom(Marital ~ Age + Income + Race, data = df_known, maxit = 1000)
+df_missing <- data %>% filter(is.na(Marital))
+predicted_marital <- predict(model, newdata = df_missing)
+data$Marital[is.na(data$Marital)] <- predicted_marital
+summary(data)
+```
+## Matrica korelacije
+
+Hajde pre svega da pogledamo matricu korelacije izmedju naših promenjivih.
+```{r}
+numeric_data <- data[, sapply(data, is.numeric)]
+library(corrplot)
+matrix = cor(numeric_data)
+corrplot(matrix, method="color")
+```
+Kao što možemo da vidimo, korelisane su samo promenjive WaistCirc i BMI, tako da ćemo videti kako ćemo rešiti ovaj problem kasnije.
+
+## Zavisnost promenjivih sa trgetom
+
+#### Zavisnost promenjive Sex i MetaboliSyndrome
+```{r}
+ggplot(data = data, aes(x = Sex, fill = MetabolicSyndrome)) + geom_bar()
+contingency_table <- table(data$Sex, data$MetabolicSyndrome)
+chi_square_result <- chisq.test(contingency_table)
+print(chi_square_result)
+```
+Kao što možemo da vidimo sa grafika, od metaboličkog sindrom oboljevaju i osobe muškog pola i osobe ženskog pola. Pol nam ne pravi razliku pa ćemo njega za sada smatrati nebitnim featurom.
+I ChiSquare test nam je pokazao da nam je pol neuticajna promenjiva.
+
+#### Zavisnost promenjive Marital i MetabolicSyndrome
+```{r}
+data_summary_marital <- data %>%
+  group_by(Marital, MetabolicSyndrome) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Marital) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+ggplot(data_summary_marital, aes(x = Marital, y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metaboličkog sindroma po bračnom statusu",
+    x = "Bračni status",
+    y = "Broj slučajeva",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+contingency_table <- table(data$Marital, data$MetabolicSyndrome)
+chi_square_result <- chisq.test(contingency_table)
+print(chi_square_result)
+```
+Sa grafika vidimo da Divorced i Widowed ljudi imaju veće tendencije da obole od metaboličkog sindroma, skoro polovina. Separated i Married ljudi oboljevaju malo manje, otprilike jedna trećina, dok Single ljudi oboljevaju najmanje, otprilike jedna četvrtina. Pretpostavljamo da Marital utiče na sindrom tako da ćemo ovu promenjivu imati u obzir prilikom pravljenja modela.
+ChiSquare test je potvrdio našu pretpostavku i ova promenjiva je važna za naš model.
+
+#### Zavisnost promenjive Race i MetabolicSyndrome
+```{r}
+data_summary_race <- data %>%
+  group_by(Race, MetabolicSyndrome) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Race) %>%
+  mutate(percentage = count / sum(count) * 100)
+ggplot(data_summary_race, aes(x = Race, y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metaboličkog sindroma po rasama",
+    x = "Rasa",
+    y = "Broj slučajeva",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+contingency_table <- table(data$Race, data$MetabolicSyndrome)
+chi_square_result <- chisq.test(contingency_table)
+print(chi_square_result)
+
+```
+Sa ovog grafika vidimo da Hispanic i MexAmerican najviše oboljevaju od metaboličkog sindroma. Pretpostavljamo da je to zbog njihove bogate kuhinje i malo masnije hrane. Ovu promenjivu ćemo uzeti u obzir prilikom pravljenja modela. ChiSquare nam je takodje pokazao da ova kategorijska promenjiva ima uticaja na naš ishod.
+
+#### Zavisnost promenjive Age i MetabolicSyndrome
+```{r}
+ggplot(data = data, aes(x = Age, fill = MetabolicSyndrome)) + geom_histogram()
+
+```
+Sa grafika možemo videti da stariji ljudi imaju veće šanse da obole od metaboličkog sindroma. Ova promenjiva može veoma uticati na naš model i nju ćemo uzeti u obzir.
+
+#### Zavisnost promenjive Income i MetabolicSyndrome
+```{r}
+ggplot(data = data, aes(x = MetabolicSyndrome, y = Income, fill = MetabolicSyndrome)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribucija prihoda po Metaboličkom sindromu",
+    x = "Metabolički sindrom",
+    y = "Prihod",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+```
+Sa grafika možemo videti da medijalna vrednost prihoda kod ljudi koji imaju metabolički sindrom i onih koji nemaju ista.
+
+#### Zavisnost promenjive WaistCirc i MetabolicSyndrome
+
+Veći obim struka često je povezan sa većim rizikom od metaboličkog sindroma. Centralna gojaznost, koja se meri obimom struka, često je indikator povećanog visceralnog (trbušnog) masnog tkiva, što može povećati rizik od metaboličkog sindroma.
+```{r}
+ggplot(data = data, aes(x = WaistCirc, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Sa grafika možemo primetiti da WaistCirc utiče na našu target promenjivu jer ljudi sa većim obimom struka imaju veće šanse da obole od metabolickog sindroma. Ovu promenjivu ćemo uzeti u obzir.
+
+#### Zavisnost promenjive BMI i MetabolicSyndrome
+Visok BMI je takođe faktor rizika za metabolički sindrom. Prekomerna težina, posebno u kombinaciji sa centralnom gojaznošću, može doprineti insulinskoj rezistenciji, dislipidemiji i visokom krvnom pritisku - karakterističnim faktorima metaboličkog sindroma.
+```{r}
+ggplot(data = data, aes(x = BMI, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Za promenljivu BMI isto vaši kao i za promenljivu WaistCirc. Ljudi sa većim BMI imaju veće šanse da obole od metaboličkog sindroma. Ova promenljiva je važna za naš model. Hajde da napravimo novu promenjivu od BMI.
+```{r}
+data$BMI_category <- ifelse(data$BMI < 18.5, "Underweight",
+                            ifelse(data$BMI >= 18.5 & data$BMI <= 24.9, "Healthy Weight",
+                                   ifelse(data$BMI >= 25.0 & data$BMI <= 29.9, "Overweight",
+                                          "Obese")))
+data$BMI_category <- factor(data$BMI_category)
+```
+
+```{r}
+data_summary_bmi <- data %>%
+  group_by(BMI_category, MetabolicSyndrome) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(BMI_category) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+ggplot(data_summary_bmi, aes(x = BMI_category, y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metabolickog sindroma po BMI kategoriji",
+    x = "BMI kategorija",
+    y = "Broj slucajeva",
+    fill = "Metabolicki sindrom"
+  ) +
+  theme_minimal()
+```
+
+#### Zavisnost promenljive Albuminuria i MetabolicSyndrome
+Albumini su zapravo proteina koji dospoevaju u urin kada bubrezi nisu u mogućnosti da prerade velike količine proteina unete hranom. Provera albumina u urinu se vrši jutarnjim drugim uzorkom. Povećana koncentracija albumina u urinu (albuminurija) može ukazivati na oštećenje bubrega, što je često povezano sa metaboličkim poremećajima kao što su dijabetes i hipertenzija, što su faktori rizika za metabolički sindrom.
+
+```{r}
+data_summary_albuminuria <- data %>%
+  group_by(Albuminuria, MetabolicSyndrome) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Albuminuria) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+ggplot(data_summary_albuminuria, aes(x = as.factor(Albuminuria), y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metaboličkog sindroma po albuminu u urinu",
+    x = "Albuminuria",
+    y = "Broj slučajeva",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+```
+Sa ovog grafika možemo videti da najviše ima ljudi koji imaju 0 albumina u urinu i oni najredje oboljevaju od ovog sindroma. Ljudi sa vrednosti 1 imaju skoro jednake šanse a ljudi koji imaju vrednost 2 imaju najveće šanse od oboljevanja. Pošto se ovde javljaju samo tri vrednosti, napravićemo novu promenjivu od ove koju ćemo faktorisati.
+```{r}
+data$Albuminuria_New = factor(data$Albuminuria)
+summary(data)
+```
+#### Zavisnost promenjive UrAlbCr i MetabolicSyndrome
+Ovaj odnos može biti koristan pokazatelj bubrega i rizika od kardiovaskularnih bolesti, koji su često povezani sa metaboličkim sindromom. Vrednost ove promenjive nam zavisi i od količine kreatinina u krvi koji je jedan od pokazatelja mogućih oštećenja bubrega.
+```{r}
+ggplot(data = data, aes(x = UrAlbCr, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Normalan odnos albumina i kreatinina u urinu je do 30mg/g. Možemo primetiti da ovde imamo i neke izuzetne vrednosti, da vidimo koliko ih imamo preko hiljadu.
+```{r}
+length(which(data$UrAlbCr>1000))
+```
+Ima ih 18. Hajde da vidimo koje su to vrednosti
+```{r}
+data$UrAlbCr[data$UrAlbCr > 1000]
+```
+Hajde da vidimo da vidimo prosek i medijanu godina za ove ljude.
+```{r}
+mean(data$Age[data$UrAlbCr > 1000], na.rm = TRUE)
+median(data$Age[data$UrAlbCr > 1000], na.rm = TRUE)
+```
+Možemo primetiti da su to mahom stariji ljudi, koji imaju verovatno imaju bolesti bubrega i otuda ovakve vrednosti. Hajde da vidimo koliko imamo ljudi za koje se smatra da imaju povišen odnos albumina i kreatinina u krvi.
+```{r}
+length(which(data$UrAlbCr>30))
+```
+Vidimo da imamo 311 ljudi koji imaju veći odnos albumina i kreatinina u krvi. Veće referentne vrednosti ovog parametra ukazuju na bolesti bubrega. Hajde da uzmemo u obzir samo ljude koji imaju normalne vrednosti.
+```{r}
+ggplot(data = filter(data, data$UrAlbCr<30), aes(x = UrAlbCr, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Pošto na podeuku 15 otprilike dolazi do pada, hajde da vidimo procentulano koliko ljudi imaju sindrom sa odnosom albumina u kreatininu manje od 15, a koliko od 15 do 30.
+```{r}
+percentage_under_10 <- sum(data$UrAlbCr < 10 & data$MetabolicSyndrome == "Yes") / sum(data$UrAlbCr < 15)
+percentage_from_10_to_30 <- sum(data$UrAlbCr >= 10 & data$UrAlbCr <= 30 & data$MetabolicSyndrome == "Yes") / sum(data$UrAlbCr >= 10 & data$UrAlbCr <= 30)
+percentage_above_30 <- sum(data$UrAlbCr > 30 & data$MetabolicSyndrome == "Yes") / sum(data$UrAlbCr > 30)
+cat("Under 10:", percentage_under_10 * 100, "%\n")
+cat("Between 10 and 30:", percentage_from_10_to_30 * 100, "%\n")
+cat("Above 30:", percentage_above_30 * 100, "%\n")
+```
+Možemo primetiti da se šanse povećavaju. Hajde da napravimo novu promenljivu koja će imati tri vrednosti kao što smo ovde izračunali.
+```{r}
+data$UrAlbCr_New = ifelse(data$UrAlbCr < 10, "Under 10", ifelse(data$UrAlbCr <= 30, "Between 10 and 30", "Above 30"))
+data$UrAlbCr_New = factor(data$UrAlbCr_New)
+summary(data)
+```
+#### Zavisnost promenljive UricAcid i MetabolicSyndrome
+Povišen nivo mokraćne kiseline može biti povezan sa metaboličkim sindromom, posebno sa insulinskom rezistencijom i hipertenzijom.
+```{r}
+ggplot(data = data, aes(x = UricAcid, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Sa ovog grafika takodje možemo da vidimo da mokraćna kiselina blago utiče na sindrom kao i odnos albumina i kreatitina u urinu. Ova promenljiva će biti pod znakom pitanja i videćemo šta ćemo uraditi sa njom.
+
+#### Zavisnost promenljive BloodGlucose i MetabolicSyndrome
+
+Visok nivo glukoze u krvi (hiperglikemija) česta je karakteristika dijabetesa tipa 2, koji je jedan od ključnih komponenti metaboličkog sindroma. Povišen nivo šećera u krvi može se odraziti na ishranu koja mora biti prilagodjena ljudima koji imaju povišen šećer. Visok nivo šećera takodje negativno utiče na bubreg koji u dužem vremenskom periodu može da dovede do hronične bolesti istih.
+```{r}
+ggplot(data = data, aes(x = BloodGlucose, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Šećer u krvi nam je važna promenljiva i to možemo videti sa prethodnog grafika. Viši nivo šećera povećava šanse od metaboličkog sindroma. Možemo primetiti da i šećer u krvi ima neke izuzetne vrednosti. Hajde da vidimo koliko ljudi ima šećer u krvi preko 200.
+```{r}
+length(which(data$BloodGlucose>200))
+```
+Hajde da proverimo prosek i medijanu godina za ove ljude.
+```{r}
+mean(data$Age[data$BloodGlucose > 200], na.rm = TRUE)
+median(data$Age[data$BloodGlucose > 200], na.rm = TRUE)
+```
+Vidimo da su to sredovečni ljudi koji verovatno boluju od dijabetesa. Hajde da proverimo još neke parametre.
+```{r}
+mean(data$UrAlbCr[data$BloodGlucose > 200], na.rm = TRUE)
+median(data$UrAlbCr[data$BloodGlucose > 200], na.rm = TRUE)
+summary(data$UrAlbCr)
+```
+A možemo primetiti da su to i ljudi koji imaju povišen odnos albumina i kreatinina u urinu. Ovo takodje ukazuje na probleme sa bubrezima. Poznato je da povisen šećer u krvi oštećuje bubrege i stvara hroničnu bolest bubrega.
+Normalan šećer se kreće ispod 100. Predijabetes je u rasponu od 100 do 125, a dijabetes se smatra za vrednosti veće od 126. Hajde da napravimo novu promenjivu, Diabetes.
+```{r}
+data$Diabetes <- ifelse(data$BloodGlucose < 100, "No",
+                        ifelse(data$BloodGlucose < 126, "Prediabetes", "Yes"))
+data$Diabetes <- factor(data$Diabetes)
+summary(data)
+```
+```{r}
+data_summary_diabetes <- data %>%
+  group_by(Diabetes, MetabolicSyndrome) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Diabetes) %>%
+  mutate(percentage = count / sum(count) * 100)
+ggplot(data_summary_diabetes, aes(x = Diabetes, y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metaboličkog sindroma po dijabetesu",
+    x = "Dijabetes",
+    y = "Broj slučajeva",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+```
+#### Zavisnost promenljive HDL i MetabolicSyndrome
+Nizak nivo HDL holesterola (tzv. "dobrog" holesterola) povezan je sa povećanim rizikom od metaboličkog sindroma, jer HDL ima zaštitnu ulogu protiv ateroskleroze. Ljudi sa povećanim količinama HDL su ljudi koji unsoe dovoljne količine zdravih masti (omega-3-masne kiseline). 
+```{r}
+ggplot(data = data, aes(x = HDL, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Možemo primetiti da i ovde postoje izuzetne vrednosti. Hajde da vidimo koliko ima ljudi sa HDL-om preko 100.
+```{r}
+length(which(data$HDL > 100))
+```
+Ima ih 16. S obzirom da je HDL dobar holesterol, hajde da vidimo kako se kreću vrednosti za šećer kod ovih ljudi.
+```{r}
+mean(data$BloodGlucose[data$HDL > 100], na.rm = TRUE)
+median(data$BloodGlucose[data$HDL > 100], na.rm = TRUE)
+summary(data$BloodGlucose)
+```
+Vidimo da su ispod medijane i proseka, što znači da verovatno nemaju problema sa šećerom što je logično s obzirom na vrednost HDL. Hajde da proverimo i trigliceride.
+```{r}
+mean(data$Triglycerides[data$HDL > 100], na.rm = TRUE)
+median(data$Triglycerides[data$HDL > 100], na.rm = TRUE)
+summary(data$Triglycerides)
+```
+Kao što smo i pretpostavili, imaju ih poprilično manje u odnosu na sve ljude, tako da je ovo logično odstupanje.
+HDL(dobar holesterol) nam je važna promenljiva i možemo videti sa grafika da ljudi sa nižim nivoom dobrog holesterola imaju veće šanse da obole od metaboličkog sindroma. Ovu promenljivu ćemo uključiti u naš model. Probaćemo da ovu promenjivu podelimo na tri dela i da vidimo koliko ljudi procentualno oboljeva od ovog sindroma. Na osnovu ovog grafika uzećemo ljude od 0 do 50, od 50 do 100 i više od 100.
+```{r}
+percentage_under_50 <- sum(data$HDL < 50 & data$MetabolicSyndrome == "Yes") / sum(data$HDL < 50)
+percentage_from_50_to_100 <- sum(data$HDL >= 50 & data$HDL <= 100 & data$MetabolicSyndrome == "Yes") / sum(data$HDL >= 50 & data$HDL <= 100)
+percentage_above_100 <- sum(data$HDL > 100 & data$MetabolicSyndrome == "Yes") / sum(data$HDL > 100)
+cat("Under 50:", percentage_under_50 * 100, "%\n")
+cat("Between 50 and 100:", percentage_from_50_to_100 * 100, "%\n")
+cat("Above 100:", percentage_above_100 * 100, "%\n")
+```
+Kao što možemo videti, ljudi sa HDL ispod 50 imaju malo više od 50% šanse da obole, dok ljudi izmedju 50 i 100 imaju skoro 20%. Ljudi sa HDL preko 100 ne oboljevaju od ovog sindroma. Kao i kod odnosa albumina i kreatinina, napravićemo novu promenljivu.
+```{r}
+data$HDL_New = ifelse(data$HDL < 50, "Under 50", ifelse(data$HDL <= 100, "Between 50 and 100", "Above 100"))
+data$HDL_New = factor(data$HDL_New)
+summary(data)
+```
+#### Zavisnost promenljive Triglycerides i MetabolicSyndrome
+Visok nivo triglicerida u krvi čest je kod metaboličkog sindroma i može biti indikator insulinske rezistencije i metaboličkih poremećaja. Ljudi sa povišen trigliceridima su ljudi koji jedu masniju hranu, sa više nezdravih masti koje zapušavaju krvne sudove. 
+```{r}
+ggplot(data = data, aes(x = Triglycerides, fill = MetabolicSyndrome)) + geom_histogram()
+```
+Sa grafika možemo primetiti da imamo izuzetne vrednosti i kod triglecirida. Hajde da vidimo kolimo ljudi imamo sa trigleciridima preko 500.
+```{r}
+length(which(data$Triglycerides>500))
+data$Triglycerides[data$Triglycerides>500]
+```
+Imamo ih 26. Hajde da proverimo neku povezanost sa ostalim promenjivima. Možemo prvo proveriti sa BMI jer bi logično mogla da postoji neka povezanost.
+```{r}
+mean(data$BMI[data$Triglycerides > 500], na.rm = TRUE)
+median(data$BMI[data$Triglycerides > 500], na.rm = TRUE)
+summary(data$BMI)
+```
+Vidimo su to ljudi malo iznad proseka i medija po BMI. Hajde da proverimo kakve vrednosti HDL imaju ove osobe
+```{r}
+mean(data$HDL[data$Triglycerides > 500], na.rm = TRUE)
+median(data$HDL[data$Triglycerides > 500], na.rm = TRUE)
+summary(data$HDL)
+```
+To su osobe sa HDL-om ispod proseka i medijane, što smo i očekivali. Ovo odstupanje je takodje logično.
+Sa datog grafika vidimo da nam je i promenljiva Triglycerides izuzetno važna i da ljudi sa višim nivoom triglicerida imaju veće šanse da obole od metaboličkog sindroma. Hajde da vidimo da li postoji neka medjusobna zavisnost izmedju featura i da li to možemo da uključimo u naš model. Hajde da vidimo koliko procenta ljudi ima metabolički sindrom sa trigleciridima ispod 125, koliko sa trigliceridima izmedju 125 i 500 a koliko sa preko 500.
+```{r}
+percentage_under_125 <- sum(data$Triglycerides < 125 & data$MetabolicSyndrome == "Yes") / sum(data$Triglycerides < 125)
+percentage_from_125_to_500 <- sum(data$Triglycerides >= 125 & data$Triglycerides <= 500 & data$MetabolicSyndrome == "Yes") / sum(data$Triglycerides >= 125 & data$Triglycerides <= 500)
+percentage_above_500 <- sum(data$Triglycerides >= 500 & data$MetabolicSyndrome == "Yes") / sum(data$Triglycerides >= 500)
+cat("Under 125:", percentage_under_125 * 100, "%\n")
+cat("Between 125 and 500:", percentage_from_125_to_500 * 100, "%\n")
+cat("Above 500:", percentage_above_500 * 100, "%\n")
+```
+```{r}
+data$Triglycerides_New = ifelse(data$Triglycerides < 125, "Under 125", ifelse(data$Triglycerides <= 125, "Between 125 and 500", "Above 500"))
+data$Triglycerides_New = factor(data$Triglycerides_New)
+summary(data)
+```
+## Zavisnost medjusobnih feature-a
+#### Zavisnost BMI i WaistCirc
+Pre svega ćemo proveriti da li postoji zavisnost izmedju BMI i WaistCirc. Iz domenskog znanja znamo da to može biti blisko povezano
+```{r}
+ggplot(data = data, aes(x = BMI, y = WaistCirc)) + geom_point()
+```
+Vidimo da postoji korelacija izmedju BMI i WaistCirc. Hajde da u ovaj grafik dodamo i MetabolicSyndrome.
+```{r}
+ggplot(data = data, aes(x = BMI, y = WaistCirc, color = MetabolicSyndrome)) + geom_point()
+```
+Sa grafika možemo videti da su BMI i WaistCirc kolinearni. S ozbzirom da su obe promenjive važne za naš model, mi ćemo od ove dve promenjive napraviti jednu koja predstavlja BMI_WaistCirc_ratio i napravićemo tako što cćemo podeliti BMI sa WaistCirc.
+```{r}
+data$BMI_WaistCirc_ratio <- data$BMI / data$WaistCirc
+summary(data)
+```
+#### Zavisnost parametara u urinu
+Iz matrice korelacije na početku, možemo ustanoviti da su Albuminuria i UrAlbCr visoko korelisani, tako da ćemo izbeći korišćenje ove dve promenjive zajedno u modelima.
+```{r}
+ggplot(data = data, aes(x = UricAcid, y = UrAlbCr, color = Albuminuria_New)) + geom_point() +  labs(
+    x = "Mokraćna kiselina",
+    y = "Odnos albumunia i kreatinina u urinu",
+    color = "Albumini u urinu"
+  )
+```
+```{r}
+ggplot(data = data, aes(x = UricAcid, y = UrAlbCr, color = MetabolicSyndrome)) + geom_point() +  labs(
+    title = "Distribucija po albuminima u urinu",
+    x = "Mokraćna kiselina",
+    y = "Odnos albumunia i kreatinina u urinu",
+    color = "Metabolički sindrom"
+  ) + facet_wrap(data$Albuminuria_New)
+```
+```{r}
+ggplot(data_summary_albuminuria, aes(x = as.factor(Albuminuria), y = count, fill = MetabolicSyndrome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(
+    title = "Distribucija Metaboličkog sindroma po albuminu u urinu",
+    x = "Albuminuria",
+    y = "Broj slučajeva",
+    fill = "Metabolički sindrom"
+  ) +
+  theme_minimal()
+```
+#### Zavisnost izmedju HDL, Triglycerides i Diabetes
+
+```{r}
+ggplot(data = data, aes(x = HDL, y = Triglycerides, color = MetabolicSyndrome)) + geom_point() +  labs(
+  title = "Distribucija po dijabetesu",
+    x = "HDL",
+    y = "Trigliceridi",
+    color = "Sindrom"
+  ) + facet_wrap(data$Diabetes)
+```
+
+```{r}
+ggplot(data = data, aes(x = HDL, y = Triglycerides, color = Diabetes)) + geom_point() +  labs(
+  title = "Distribucija po sindromu",
+    x = "HDL",
+    y = "Trigliceridi",
+    color = "Dijabetes"
+  ) + facet_wrap(data$MetabolicSyndrome)
+```
+
+Sa ovih grafika možemo videti sa su HDL i Trigliceridi u kombinaciji moćna promenjiva, tako da ćemo njih uključiti u naš model u sinergiji.
+
+```{r}
+summary(data)
+```
+## Modeli mašinskog učenja
+
+#### Logistička regresija
+
+```{r}
+set.seed(1)
+split <- initial_split(data, prop = 0.8, strata = MetabolicSyndrome)
+train <- training(split)
+test <- testing(split)
+
+train_control <- trainControl(method = "cv", number = 10)
+
+model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
+               data = train,
+               method = "glm",
+               family = "binomial",
+               trControl = train_control)
+
+print(model)
+
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+```
+
+## Stablo odlučivanja
+```{r}
+tree <- rpart(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + Triglycerides,
+              data = train,
+              method = "class")
+
+rpart.plot(tree)
+print(model)
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+
+```
+
+Vidimo da stablo odlučivanja ima lošiji accuracy od modela Logističke regresije i za nijansu lošiji F1 score.
+
+## Random forest
+
+```{r}
+model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
+                  data = train,
+                  method = "rf",  
+                  trControl = train_control)
+
+print(model)
+
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+```
+## Poboljšanje modela
+Hajde da kolonu Marital probamo da popunimo metodom najbližih suseda.
+```{r}
+sum(is.na(dataPom$Marital) | dataPom$Marital == "")
+
+dataPom <- dataPom %>% mutate(Marital = ifelse(Marital == "", NA, Marital))
+
+sum(is.na(dataPom$Marital))
 
 
+data_imputed <- kNN(dataPom, variable = "Marital", k = 5)
+sum(is.na(data_imputed$Marital))
 
+```
+```{r}
+data$Marital = factor(data_imputed$Marital)
+summary(data)
+table(data$Marital)
+```
+```{r}
+model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
+               data = train,
+               method = "glm",
+               family = "binomial",
+               trControl = train_control)
+
+print(model)
+
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+```
+
+```{r}
+tree <- rpart(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + Triglycerides,
+              data = train,
+              method = "class")
+
+rpart.plot(tree)
+
+print(model)
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+```
+
+```{r}
+model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
+                  data = train,
+                  method = "rf",  
+                  trControl = train_control)
+
+print(model)
+
+pred_prob <- predict(model, newdata = test, type = "raw")
+
+cm <- confusionMatrix(pred_prob, test$MetabolicSyndrome)
+
+print(cm)
+
+precision <- cm$byClass["Pos Pred Value"]
+recall <- cm$byClass["Sensitivity"]
+f1_score <- 2 * ((precision * recall) / (precision + recall))
+
+cat("F1 score:", round(f1_score, 4), "\n")
+```
+
+## Zaključak
+
+Razvili smo model za predviđanje metaboličkog sindroma koristeći logističku regresiju. Model je koristio podatke kao što su godine, pol, BMI, nivo glukoze u krvi, nivo HDL holesterola i triglicerida. Trenirali smo ga na skupu podataka pacijenata sa i bez metaboličkog sindroma. Performanse modela smo procenili koristeći metrike kao što su tačnost, preciznost, odziv i F1 skor.
+
+Rezultati pokazuju da model dobro predviđa metabolički sindrom. Matrica konfuzije je pokazala tačne identifikacije pacijenata sa i bez metaboličkog sindroma, ali je bilo i nekih grešaka, što znači da ima prostora za poboljšanje.
+
+Naše modele smo pokušali da poboljšamo drugačijim pristupom popunjavanja kolone Marital, ali smo uspeli samo poboljašti Random Forest model, što znači da naš model logističke regresije dobro popunjava nedostajuće vrednosti za ovu kolonu.
+
+U budućnosti, mogli bismo isprobati složenije modele, kao što su ansambl metode ili neuronske mreže, kako bismo poboljšali predikcije. Takođe, koristili bismo raznovrsnije skupove podataka i proveravali model na eksternim podacima kako bismo ocenili koliko je model univerzalan.
