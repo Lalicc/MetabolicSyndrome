@@ -38,11 +38,11 @@ The dataset includes the following columns:
 
 The analysis and modeling are performed using R. The process includes the following steps:
 
-1. **Data Cleaning**:
+1. **Data Cleaning**: During our data cleaning, we took care of missing values, removed any outliers, and adjusted variables to be more analysis-friendly. For instance, we got rid of unusually high UrAlbCr values and introduced a new categorical variable to better represent the data distribution.
 
-2. **Data Analysis**:
+2. **Data Analysis**: In our data analysis, we used statistical methods and visualizations to explore the relationships between different variables and metabolic syndrome. We created charts to show the distributions and connections between important biomarkers and the presence of metabolic syndrome. We also looked into how factors like BMI, uric acid levels, and albuminuria influence the condition.
 
-3. **Model Training and Evaluation**:
+3. **Model Training and Evaluation**: We used various algorithms, including logistic regression and Random Forest, to train our models. After splitting the data into training and test sets, we trained the models and assessed their performance with metrics like accuracy, precision, recall, and F1 score. We reviewed the results with a confusion matrix and continuously refined the models by adding relevant predictors and adjusting hyperparameters to enhance their performance.
 
 ## Results
 
