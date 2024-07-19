@@ -78,8 +78,9 @@ ggplot(data_summary, aes(x = "", y = Percentage, fill = MetabolicSyndrome)) +
 Možemo primetiti da u našem setu podataka imamo više ljudi koji nema sindrom nego onih koji imaju.
 
 ## Ispitivanje i vizualizacija podataka
+U ovom odeljku ćemo proveriti da li postoje NULL vrednosti i proverićemo da li postoji neke irelevantne vrednosti (duplikati, greške u pisanju, prazni stringovi). Ovo nam je izuzetno važan korak jer nam od njega zavisi rad samog modela. 
 
-#### Ispitivanje da li postoje nepopunjene vrednosti
+#### NULL i irelevantne vrednosti
 ```{r}
 length(which(data$Sex == ""))
 ```
@@ -239,7 +240,8 @@ corrplot(matrix, method="color")
 ```
 Kao što možemo da vidimo, korelisane su samo promenjive WaistCirc i BMI, tako da ćemo videti kako ćemo rešiti ovaj problem kasnije.
 
-## Zavisnost promenjivih sa trgetom
+## Zavisnost promenjivih sa targetom
+Ovaj odeljak je posvećen proučavanju zavisnosti svih naših promenjivih sa targetom. Cilj nam je ustanoviti da li postoje neke relacije izmedju pojedinačnih promenjivih i našeg targeta. U zavisnosti od toga, videćemo koje ćemo promenjive uključiti u naš model i kako.
 
 #### Zavisnost promenjive Sex i MetaboliSyndrome
 ```{r}
@@ -632,6 +634,7 @@ Sa ovih grafika možemo videti sa su HDL i Trigliceridi u kombinaciji moćna pro
 summary(data)
 ```
 ## Modeli mašinskog učenja
+Za pravljenje naših modela koristićemo Logističku regresiju, Stabla odlučivanja i Random Forest algoritam. Odlučili smo se za dva jednostavnija pristupa i jedan složeniji pa ćemo na kraju uporediti rezultate.
 
 #### Logistička regresija
 
@@ -663,6 +666,7 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 
 cat("F1 score:", round(f1_score, 4), "\n")
 ```
+Naš model logističke regresije dobio je F1 score od 0.884 što je dobar rezultat. 
 
 ## Stablo odlučivanja
 ```{r}
@@ -684,11 +688,9 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 cat("F1 score:", round(f1_score, 4), "\n")
 
 ```
-
-Vidimo da stablo odlučivanja ima lošiji accuracy od modela Logističke regresije i za nijansu lošiji F1 score.
+Vidimo da naše stablo odlučivanja dobija iste rezulate kao model Logističke regresije. Hajde da vidimo kakve rezultate ćemo dobiti sa Random Forest algoritmom.
 
 ## Random forest
-
 ```{r}
 model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
                   data = train,
@@ -709,6 +711,8 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 
 cat("F1 score:", round(f1_score, 4), "\n")
 ```
+Naš Random Forest algoritam daje najbolji F1 score ali je to neznatna razlika. Primenićemo neke promene i videćemo da li će naši modeli bolje raditi.
+
 ## Poboljšanje modela
 Hajde da kolonu Marital probamo da popunimo metodom najbližih suseda.
 ```{r}
@@ -728,6 +732,25 @@ data$Marital = factor(data_imputed$Marital)
 summary(data)
 table(data$Marital)
 ```
+S obzirom da u svim modelima koristimo BMI_Category, hajde da probamo na drugaciji način da popunimo ovu promenjivu i da vidimo da li će to uticati na naše modele.
+
+```{r}
+dataPom$BMI_Category <- ifelse(dataPom$BMI < 18.5, "Underweight",
+                            ifelse(dataPom$BMI >= 18.5 & dataPom$BMI <= 24.9, "Healthy Weight",
+                                   ifelse(dataPom$BMI >= 25.0 & dataPom$BMI <= 29.9, "Overweight",
+                                          "Obese")))
+dataPom$BMI_category <- factor(dataPom$BMI_category)
+data_imputed <- kNN(dataPom, variable = "BMI_Category", k = 5)
+sum(is.na(data_imputed$BMI_Category))
+```
+```{r}
+data$BMI_category = factor(data_imputed$BMI_Category)
+summary(data)
+table(data$BMI_category)
+```
+Ovu promenjivu smo popunili isto kao Marital, pomoću KNN algoritma. Hajde da vidimo da li postoje poboljšanja naših modela.
+
+
 ```{r}
 model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
                data = train,
@@ -749,6 +772,7 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 
 cat("F1 score:", round(f1_score, 4), "\n")
 ```
+Logistička regresija radi na isti način kao i pre.
 
 ```{r}
 tree <- rpart(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + Triglycerides,
@@ -756,7 +780,6 @@ tree <- rpart(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + Tr
               method = "class")
 
 rpart.plot(tree)
-
 print(model)
 pred_prob <- predict(model, newdata = test, type = "raw")
 
@@ -769,6 +792,7 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 
 cat("F1 score:", round(f1_score, 4), "\n")
 ```
+Primećujemo da i stablo odlučivanja radi na isti način.
 
 ```{r}
 model <- train(MetabolicSyndrome ~ BMI_category + Albuminuria_New + Diabetes + HDL*Triglycerides + Marital + Race,
@@ -790,6 +814,7 @@ f1_score <- 2 * ((precision * recall) / (precision + recall))
 
 cat("F1 score:", round(f1_score, 4), "\n")
 ```
+Možemo primetiti da smo unapredili naš Random Forest algoritam.
 
 ## Zaključak
 
